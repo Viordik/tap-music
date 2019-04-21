@@ -1,131 +1,150 @@
-"use strict";
+'use strict';
 
-const gulp = require("gulp");
-const sass = require("gulp-sass");
-const plumber = require("gulp-plumber");
-const postcss = require("gulp-postcss");
-const autoprefixer = require("autoprefixer");
-const mqpacker = require("css-mqpacker");
-const minify = require("gulp-csso");
-const imagemin = require("gulp-imagemin");
-const svgmin = require("gulp-svgmin");
-const svgstore = require("gulp-svgstore");
-const rename = require("gulp-rename");
-const del = require("del");
-const runSeq = require("run-sequence");
-const cheerio = require("gulp-cheerio");
-const server = require("browser-sync").create();
+const gulp = require('gulp');
+const sass = require('gulp-sass');
+const plumber = require('gulp-plumber');
+const postcss = require('gulp-postcss');
+const imagemin = require('gulp-imagemin');
+const svgmin = require('gulp-svgmin');
+const svgstore = require('gulp-svgstore');
+const rename = require('gulp-rename');
+const del = require('del');
+const cheerio = require('gulp-cheerio');
+const server = require('browser-sync').create();
+const rollup = require('rollup-stream');
+const babel = require('rollup-plugin-babel');
+const source = require('vinyl-source-stream');
+const buffer = require('vinyl-buffer');
 const sourcemaps = require('gulp-sourcemaps');
-const babel = require('gulp-babel');
-const concat = require('gulp-concat');
 const uglify = require('gulp-uglify');
 
-gulp.task("copy", () => {
-  gulp.src([
-    "fonts/**/*.{woff,woff2}",
-    "img/**",
-    "*.html",
-    "js/polyfill/*.js"
-  ], {
-    base: "."
-  })
-    .pipe(gulp.dest("build"));
+gulp.task('copy', (done) => {
+  gulp
+    .src(['fonts/**/*.{woff,woff2}', 'img/**', '*.html', 'sounds/*.mp3'], {
+      base: '.'
+    })
+    .pipe(gulp.dest('build'));
+
+  done();
 });
 
-gulp.task("clean", () => del("build"));
+gulp.task('clean', () => del('build'));
 
-gulp.task("style", () => {
-  gulp.src("sass/style.scss")
+gulp.task('style', (done) => {
+  gulp
+    .src('sass/style.scss')
     .pipe(plumber())
     .pipe(sass())
-    .pipe(postcss([
-      autoprefixer({browsers: [
-        "last 3 versions"
-      ]}),
-      mqpacker({
-        sort: true
-      })
-    ]))
-    .pipe(gulp.dest("build/css"))
-    .pipe(minify())
-    .pipe(rename("style.min.css"))
-    .pipe(gulp.dest("build/css"))
-    .pipe(server.stream());
-});
-
-gulp.task('scripts', () => {
-  gulp.src('js/*.js')
     .pipe(sourcemaps.init())
-      .pipe(concat('script.js'))
-      .pipe(gulp.dest('build/js'))
-      .pipe(babel({
-        presets: ['es2015']
-      }))
-      .pipe(uglify())
-      .pipe(rename("script.min.js"))
-      .pipe(sourcemaps.write('.'))
+    .pipe(postcss())
+    .pipe(sourcemaps.write('.'))
+    .pipe(rename('style.min.css'))
+    .pipe(gulp.dest('build/css'))
+    .pipe(server.stream());
+
+  done();
+});
+
+let cache = false;
+gulp.task('scripts', (done) => {
+  rollup({
+    input: './js/index.js',
+    sourcemap: true,
+    format: 'iife',
+    plugins: [
+      babel({
+        exclude: 'node_modules/**',
+        presets: [['@babel/env', { modules: false }]]
+      })
+    ],
+    cache: cache
+  })
+    .on('bundle', (bundle) => {
+      cache = bundle;
+    })
+    .pipe(plumber())
+    .pipe(source('index.js', './js'))
+    .pipe(buffer())
+    .pipe(sourcemaps.init({ loadMaps: true }))
+    .pipe(rename('script.js'))
     .pipe(gulp.dest('build/js'))
+    .pipe(uglify())
+    .pipe(rename('script.min.js'))
+    .pipe(sourcemaps.write('.'))
+    .pipe(gulp.dest('build/js'));
+
+  done();
 });
 
-gulp.task("images", () => {
-  gulp.src("build/img/**/*.{png,jpg,gif}")
-    .pipe(imagemin([
-      imagemin.optipng({optimizationLevel: 3}),
-      imagemin.jpegtran({progressive: true})
-    ]))
-    .pipe(gulp.dest("build/img"));
+gulp.task('images', (done) => {
+  gulp
+    .src('build/img/**/*.{png,jpg,gif}')
+    .pipe(
+      imagemin([
+        imagemin.gifsicle({ interlaced: true }),
+        imagemin.jpegtran({ progressive: true }),
+        imagemin.optipng({ optimizationLevel: 3 })
+      ])
+    )
+    .pipe(gulp.dest('build/img'));
+
+  done();
 });
 
-gulp.task("symbols", () => {
-  gulp.src("build/img/icons/*.svg")
+gulp.task('symbols', (done) => {
+  gulp
+    .src('build/img/icons/*.svg')
     .pipe(svgmin())
-    .pipe(svgstore({
-      inlineSvg: true
-    }))
-    .pipe(cheerio({
-      run: function ($) {
-        $('svg').attr('style',  'display:none');
-        $('[fill]').removeAttr('fill');
-      },
-      parserOptions: { xmlMode: true }
-    }))
-    .pipe(rename("symbols.svg"))
-    .pipe(gulp.dest("build/img"));
+    .pipe(
+      svgstore({
+        inlineSvg: true
+      })
+    )
+    .pipe(
+      cheerio({
+        run: function($) {
+          $('svg').attr('style', 'display:none');
+          $('[fill]').removeAttr('fill');
+        },
+        parserOptions: { xmlMode: true }
+      })
+    )
+    .pipe(rename('symbols.svg'))
+    .pipe(gulp.dest('build/img'));
+
+  done();
 });
 
-gulp.task("html:copy", () => {
-  gulp.src("*.html")
-    .pipe(gulp.dest("build"))
+gulp.task('html:copy', (done) => {
+  gulp.src('*.html').pipe(gulp.dest('build'));
+  done();
 });
 
-gulp.task("html:update", ["html:copy"], (done) => {
+gulp.task('html:update', gulp.series('html:copy'), (done) => {
   server.reload();
   done();
 });
 
-gulp.task("server", () => {
+gulp.task('server', () => {
   server.init({
     server: {
-      baseDir: "./build"
+      baseDir: './build'
     },
     tunnel: true,
     host: 'localhost',
-    port: 9000,
+    port: 9000
   });
 
-  gulp.watch("sass/**/*.{scss,sass}", ["style"]);
-  gulp.watch("js/*.js", ["scripts"]);
-  gulp.watch("*.html", ["html:update"]);
+  gulp.watch('sass/**/*.{scss,sass}', gulp.parallel('style'));
+  gulp.watch('js/*.js', gulp.parallel('scripts'));
+  gulp.watch('*.html', gulp.parallel('html:update'));
 });
 
-gulp.task("build", (fn) => {
-  runSeq (
-    "clean",
-    "copy",
-    "style",
-    "scripts",
-    "images",
-    "symbols",
-    fn
-  );
-});
+gulp.task(
+  'build',
+  gulp.series(
+    'clean',
+    'copy',
+    gulp.parallel('style', 'scripts', 'images', 'symbols')
+  )
+);
